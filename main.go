@@ -9,9 +9,10 @@ import (
 	"runtime"
 	"time"
 
+	"webserver/services"
+
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type textField struct {
@@ -29,34 +30,9 @@ func disconnect(client *mongo.Client) {
 	fmt.Println("Connection to MongoDB closed.")
 }
 
-func connectToMongo() *mongo.Client {
-	// Create client
-	client, err := mongo.NewClient(options.Client().ApplyURI("mongodb://127.0.0.1:27017"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Create connect
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Check the connection
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Connected to MongoDB!")
-	return client
-}
-
 func main() {
-	client := connectToMongo()
-	defer disconnect(client)
+	client := mongoService.Connect(0.0)
+	defer mongoService.Disconnect(client, 0.0)
 	log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
 	collection := client.Database("test").Collection("trainers")
 	collection.InsertOne(context.TODO(), textField{"Здарова"})
