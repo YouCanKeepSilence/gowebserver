@@ -3,36 +3,25 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"runtime"
 	"time"
 
-	"webserver/services"
+	"webserver/services/kafka"
+	"webserver/services/mongo"
 
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type textField struct {
 	Text string `json:"message"`
 }
 
-func disconnect(client *mongo.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	err := client.Disconnect(ctx)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Connection to MongoDB closed.")
-}
-
 func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
+	reader := kafkaService.Connect()
 	log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
 	collection := client.Database("test").Collection("trainers")
 	collection.InsertOne(context.TODO(), textField{"Здарова"})
