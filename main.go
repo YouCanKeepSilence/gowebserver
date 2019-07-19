@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"runtime"
 	"time"
 
 	"webserver/services/kafka"
@@ -22,14 +21,22 @@ func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
 	reader := kafkaService.Connect()
-	log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
-	collection := client.Database("test").Collection("trainers")
-	collection.InsertOne(context.TODO(), textField{"Здарова"})
-	r := mux.NewRouter()
-	r.HandleFunc("/", helloWorld).Methods("GET")
-	r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
-	r.HandleFunc("/blocking", blocking).Methods("GET")
-	log.Fatal(http.ListenAndServe(":8000", r))
+	message, err := reader.ReadMessage(context.TODO())
+	if err != nil {
+		log.Printf("Error in kafka %v", err)
+		return
+	}
+
+	log.Printf("Message %+v", string(message.Value))
+	//
+	// log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
+	// collection := client.Database("test").Collection("trainers")
+	// collection.InsertOne(context.TODO(), textField{"Здарова"})
+	// r := mux.NewRouter()
+	// r.HandleFunc("/", helloWorld).Methods("GET")
+	// r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
+	// r.HandleFunc("/blocking", blocking).Methods("GET")
+	// log.Fatal(http.ListenAndServe(":8000", r))
 }
 
 func checkBillingInfo(w http.ResponseWriter, r *http.Request) {
