@@ -59,10 +59,12 @@ func pollKafka(reader *kafka.Reader, interval time.Duration, messageHandler func
 func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
-	reader := kafkaService.Connect()
-	go pollKafka(reader, 2*time.Second, processMessage)
+	// reader := kafkaService.Connect()
+	// go pollKafka(reader, 2*time.Second, processMessage)
+	holder := kafkaService.KafkaHolder{}
+	holder.Connect()
+	go holder.StartPoll(1*time.Second, processMessage)
 	//
-	// log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
 	// collection := client.Database("test").Collection("trainers")
 	// collection.InsertOne(context.TODO(), textField{"Здарова"})
 	r := mux.NewRouter()
