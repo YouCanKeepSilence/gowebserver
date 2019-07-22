@@ -32,7 +32,7 @@ func (e *timeoutError) Error() string {
 func (k *KafkaHolder) Connect() {
 	k.Reader = kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:9092"},
-		Topic:     "billing2",
+		Topic:     "my-topic",
 		GroupID:   "consumer-group-id-1",
 		Partition: 0,
 		MinBytes:  10e3, // 10KB

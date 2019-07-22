@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
-	"reflect"
 	"time"
 
 	"webserver/services/kafka"
@@ -32,30 +30,6 @@ func processMessage(message kafka.Message) {
 	log.Printf("Parsed %+v", m)
 }
 
-func pollKafka(reader *kafka.Reader, interval time.Duration, messageHandler func(kafka.Message)) {
-	for {
-		<-time.After(interval)
-		log.Printf("polling kafka")
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		message, readErr := reader.ReadMessage(ctx)
-		if ctx.Err() != nil {
-			log.Printf("Timeout exceed")
-			continue
-		}
-		if readErr != nil {
-			log.Printf("Error in kafka %v. Type: %+v", readErr, reflect.TypeOf(readErr))
-			return
-			// return
-		}
-		messageHandler(message)
-		errCommit := reader.CommitMessages(context.TODO(), message)
-		if errCommit != nil {
-			log.Printf("Error in commit message: %+v", errCommit)
-		}
-	}
-}
-
 func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
@@ -63,6 +37,7 @@ func main() {
 	// go pollKafka(reader, 2*time.Second, processMessage)
 	holder := kafkaService.KafkaHolder{}
 	holder.Connect()
+	defer holder.Reader.Close()
 	go holder.StartPoll(1*time.Second, processMessage)
 	//
 	// collection := client.Database("test").Collection("trainers")
