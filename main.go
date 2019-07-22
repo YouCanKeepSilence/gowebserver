@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"reflect"
 	"time"
 
 	"webserver/services/kafka"
@@ -31,22 +32,26 @@ func processMessage(message kafka.Message) {
 	log.Printf("Parsed %+v", m)
 }
 
-func pollKafka(reader *kafka.Reader, interval time.Duration) {
+func pollKafka(reader *kafka.Reader, interval time.Duration, messageHandler func(kafka.Message)) {
 	for {
 		<-time.After(interval)
 		log.Printf("polling kafka")
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		message, err := reader.ReadMessage(ctx)
-		if err != nil {
-			log.Printf("Error in kafka %v", err)
+		message, readErr := reader.ReadMessage(ctx)
+		if ctx.Err() != nil {
+			log.Printf("Timeout exceed")
 			continue
+		}
+		if readErr != nil {
+			log.Printf("Error in kafka %v. Type: %+v", readErr, reflect.TypeOf(readErr))
+			return
 			// return
 		}
-		processMessage(message)
-		err = reader.CommitMessages(context.TODO(), message)
-		if err != nil {
-			log.Printf("Error in commit message: %+v", err)
+		messageHandler(message)
+		errCommit := reader.CommitMessages(context.TODO(), message)
+		if errCommit != nil {
+			log.Printf("Error in commit message: %+v", errCommit)
 		}
 	}
 }
@@ -55,15 +60,15 @@ func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
 	reader := kafkaService.Connect()
-	go pollKafka(reader, 2*time.Second)
+	go pollKafka(reader, 2*time.Second, processMessage)
 	//
 	// log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
 	// collection := client.Database("test").Collection("trainers")
 	// collection.InsertOne(context.TODO(), textField{"Здарова"})
 	r := mux.NewRouter()
-	r.HandleFunc("/", helloWorld).Methods("GET")
-	r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
-	r.HandleFunc("/blocking", blocking).Methods("GET")
+	// r.HandleFunc("/", helloWorld).Methods("GET")
+	// r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
+	// r.HandleFunc("/blocking", blocking).Methods("GET")
 	log.Fatal(http.ListenAndServe(":8000", r))
 }
 
