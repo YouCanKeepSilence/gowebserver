@@ -34,7 +34,7 @@ func Connect(timeout float32) *mongo.Client {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Connected to MongoDB!")
+	log.Println("Connected to MongoDB!")
 	return client
 }
 

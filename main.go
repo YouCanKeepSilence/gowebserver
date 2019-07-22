@@ -11,32 +11,60 @@ import (
 	"webserver/services/mongo"
 
 	"github.com/gorilla/mux"
+	kafka "github.com/segmentio/kafka-go"
 )
 
 type textField struct {
 	Text string `json:"message"`
 }
 
+type infoMessage struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+	Count   int32  `json:"count"`
+}
+
+func processMessage(message kafka.Message) {
+	log.Printf("Message %+v", string(message.Value))
+	var m infoMessage
+	json.Unmarshal(message.Value, &m)
+	log.Printf("Parsed %+v", m)
+}
+
+func pollKafka(reader *kafka.Reader, interval time.Duration) {
+	for {
+		<-time.After(interval)
+		log.Printf("polling kafka")
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		message, err := reader.ReadMessage(ctx)
+		if err != nil {
+			log.Printf("Error in kafka %v", err)
+			continue
+			// return
+		}
+		processMessage(message)
+		err = reader.CommitMessages(context.TODO(), message)
+		if err != nil {
+			log.Printf("Error in commit message: %+v", err)
+		}
+	}
+}
+
 func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
 	reader := kafkaService.Connect()
-	message, err := reader.ReadMessage(context.TODO())
-	if err != nil {
-		log.Printf("Error in kafka %v", err)
-		return
-	}
-
-	log.Printf("Message %+v", string(message.Value))
+	go pollKafka(reader, 2*time.Second)
 	//
 	// log.Printf("GOMAXPROCS: %v", runtime.NumCPU())
 	// collection := client.Database("test").Collection("trainers")
 	// collection.InsertOne(context.TODO(), textField{"Здарова"})
-	// r := mux.NewRouter()
-	// r.HandleFunc("/", helloWorld).Methods("GET")
-	// r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
-	// r.HandleFunc("/blocking", blocking).Methods("GET")
-	// log.Fatal(http.ListenAndServe(":8000", r))
+	r := mux.NewRouter()
+	r.HandleFunc("/", helloWorld).Methods("GET")
+	r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
+	r.HandleFunc("/blocking", blocking).Methods("GET")
+	log.Fatal(http.ListenAndServe(":8000", r))
 }
 
 func checkBillingInfo(w http.ResponseWriter, r *http.Request) {
