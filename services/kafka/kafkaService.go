@@ -6,11 +6,13 @@ import (
 	"log"
 	"time"
 
+	uuid "github.com/satori/go.uuid"
 	kafka "github.com/segmentio/kafka-go"
 )
 
 type KafkaHolder struct {
 	Reader *kafka.Reader
+	Writer *kafka.Writer
 }
 
 type timeoutError struct {
@@ -29,10 +31,10 @@ func (e *timeoutError) Error() string {
 	return fmt.Sprintf("Kafka timeout exceed")
 }
 
-func (k *KafkaHolder) Connect() {
+func (k *KafkaHolder) ConnectReader() {
 	k.Reader = kafka.NewReader(kafka.ReaderConfig{
 		Brokers:   []string{"localhost:9092"},
-		Topic:     "my-topic",
+		Topic:     "income",
 		GroupID:   "consumer-group-id-1",
 		Partition: 0,
 		MinBytes:  10e3, // 10KB
@@ -41,12 +43,19 @@ func (k *KafkaHolder) Connect() {
 	log.Printf("Connected to Kafka!")
 }
 
+func (k *KafkaHolder) ConnectWriter() {
+	k.Writer = kafka.NewWriter(kafka.WriterConfig{
+		Brokers:  []string{"localhost:9092"},
+		Topic:    "outcome",
+		Balancer: &kafka.LeastBytes{},
+	})
+}
+
 func (k *KafkaHolder) CommitMessage(message kafka.Message) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	errCommit := k.Reader.CommitMessages(ctx, message)
 	if ctx.Err() != nil {
-		log.Printf("Timeout exceed")
 		return &timeoutError{}
 	}
 	return errCommit
@@ -65,7 +74,20 @@ func (k *KafkaHolder) GetMessage() (kafka.Message, error) {
 	return message, nil
 }
 
-func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(kafka.Message)) {
+func (k *KafkaHolder) WriteMessage(key []byte, message []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	writeErr := k.Writer.WriteMessages(ctx, kafka.Message{Value: message})
+	if ctx.Err() != nil {
+		return &timeoutError{}
+	}
+	if writeErr != nil {
+		return writeErr
+	}
+	return nil
+}
+
+func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(key []byte, message []byte) ([]byte, error)) {
 	for {
 		<-time.After(interval)
 		log.Printf("Polling kafka")
@@ -79,11 +101,33 @@ func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(kafka.Messa
 				return
 			}
 		}
-		handler(message)
+
+		response, err := handler(message.Key, message.Value)
+		if err != nil {
+			log.Printf("Error in handler: %+v", err)
+			return
+		}
+
+		ID, err := uuid.NewV4()
+		if err != nil {
+			log.Printf("Error in generate uuid: %+v", err)
+			return
+		}
+
+		err = k.WriteMessage(ID.Bytes(), response)
+		if err != nil {
+			if IsTimeoutError(err) {
+				log.Printf("Write timeout exceed")
+			} else {
+				log.Printf("Error in write message: %+v", err)
+				return
+			}
+		}
+
 		err = k.CommitMessage(message)
 		if err != nil {
 			if IsTimeoutError(err) {
-				log.Printf("Timeout exceed")
+				log.Printf("Commit timeout exceed")
 			} else {
 				log.Printf("Error in commit message: %+v", err)
 				return

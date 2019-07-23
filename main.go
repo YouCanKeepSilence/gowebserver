@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -10,7 +11,7 @@ import (
 	"webserver/services/mongo"
 
 	"github.com/gorilla/mux"
-	kafka "github.com/segmentio/kafka-go"
+	uuid "github.com/satori/go.uuid"
 )
 
 type textField struct {
@@ -23,25 +24,40 @@ type infoMessage struct {
 	Count   int32  `json:"count"`
 }
 
-func processMessage(message kafka.Message) {
-	log.Printf("Message %+v", string(message.Value))
+func processMessage(key []byte, message []byte) ([]byte, error) {
+	log.Printf("Message %+v", string(message))
 	var m infoMessage
-	json.Unmarshal(message.Value, &m)
+	err := json.Unmarshal(message, &m)
+	if err != nil {
+		log.Printf("json parse error %+v", err)
+		return []byte{}, err
+	}
 	log.Printf("Parsed %+v", m)
+	answerStr := fmt.Sprintf("Answer to kafka_id: %v, message_id: %v. Count was: %d", string(key), m.ID, m.Count)
+	ID, err := uuid.NewV4()
+	if err != nil {
+		log.Printf("Error in generate uuid: %+v", err)
+		return []byte{}, err
+	}
+	ans := infoMessage{ID: ID.String(), Message: answerStr}
+	answer, err := json.Marshal(ans)
+	if err != nil {
+		log.Printf("json parse error %+v", err)
+		return []byte{}, err
+	}
+	return answer, nil
 }
 
 func main() {
 	client := mongoService.Connect(0.0)
 	defer mongoService.Disconnect(client, 0.0)
-	// reader := kafkaService.Connect()
-	// go pollKafka(reader, 2*time.Second, processMessage)
 	holder := kafkaService.KafkaHolder{}
-	holder.Connect()
+	holder.ConnectReader()
+	holder.ConnectWriter()
 	defer holder.Reader.Close()
+	defer holder.Writer.Close()
 	go holder.StartPoll(1*time.Second, processMessage)
-	//
-	// collection := client.Database("test").Collection("trainers")
-	// collection.InsertOne(context.TODO(), textField{"Здарова"})
+
 	r := mux.NewRouter()
 	// r.HandleFunc("/", helloWorld).Methods("GET")
 	// r.HandleFunc("/info/{billing_id}", checkBillingInfo).Methods("GET")
