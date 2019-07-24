@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	uuid "github.com/satori/go.uuid"
 	kafka "github.com/segmentio/kafka-go"
 )
 
@@ -77,7 +76,12 @@ func (k *KafkaHolder) GetMessage() (kafka.Message, error) {
 func (k *KafkaHolder) WriteMessage(key []byte, message []byte) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	writeErr := k.Writer.WriteMessages(ctx, kafka.Message{Value: message})
+	kafkaMessage := kafka.Message{
+		Key:     key,
+		Value:   message,
+		Headers: []kafka.Header{{Key: "my-header", Value: []byte("my-value")}},
+	}
+	writeErr := k.Writer.WriteMessages(ctx, kafkaMessage)
 	if ctx.Err() != nil {
 		return &timeoutError{}
 	}
@@ -87,7 +91,7 @@ func (k *KafkaHolder) WriteMessage(key []byte, message []byte) error {
 	return nil
 }
 
-func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(key []byte, message []byte) ([]byte, error)) {
+func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(key []byte, message []byte) ([]byte, error), exitChannel chan bool) {
 	for {
 		<-time.After(interval)
 		log.Printf("Polling kafka")
@@ -98,29 +102,24 @@ func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(key []byte,
 				continue
 			} else {
 				log.Printf("Kafka lib error: %+v", err)
-				return
+				break
 			}
 		}
 
 		response, err := handler(message.Key, message.Value)
 		if err != nil {
 			log.Printf("Error in handler: %+v", err)
-			return
+			break
 		}
 
-		ID, err := uuid.NewV4()
-		if err != nil {
-			log.Printf("Error in generate uuid: %+v", err)
-			return
-		}
-
-		err = k.WriteMessage(ID.Bytes(), response)
+		// use to key of income message as key of answer because we sending to another topic
+		err = k.WriteMessage(message.Key, response)
 		if err != nil {
 			if IsTimeoutError(err) {
 				log.Printf("Write timeout exceed")
 			} else {
 				log.Printf("Error in write message: %+v", err)
-				return
+				break
 			}
 		}
 
@@ -130,8 +129,9 @@ func (k *KafkaHolder) StartPoll(interval time.Duration, handler func(key []byte,
 				log.Printf("Commit timeout exceed")
 			} else {
 				log.Printf("Error in commit message: %+v", err)
-				return
+				break
 			}
 		}
 	}
+	exitChannel <- true
 }
